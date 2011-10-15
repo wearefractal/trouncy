@@ -127,8 +127,13 @@ function respond (req, headers, c) {
             }
         }
         
+        var buffers = [ headBuf ];
+        insertHeaders(buffers, opts.headers);
+        
         try {
-            stream.write(headBuf);
+            for (var i = 0; i < buffers.length; i++) {
+                stream.write(buffers[i]);
+            }
         }
         catch (err) {
             if (opts.emitter) {
