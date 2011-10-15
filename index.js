@@ -1,5 +1,6 @@
 var http = require('http');
 var ServerResponse = http.ServerResponse;
+var IncomingMessage = http.IncomingMessage;
 var parsers = http.parsers;
 
 var insertHeaders = require('./lib/insert_headers');
@@ -51,11 +52,13 @@ var handler = bouncy.handler = function (cb, c) {
     
     c.on('data', function onData (buf) {
         var ret = parser.execute(buf, 0, buf.length);
+        
         if (ret instanceof Error) {
             c.destroy();
         }
         else if (parser.incoming && parser.incoming.upgrade) {
             c.removeListener('data', onData);
+            c.pause();
             
             var req = parser.incoming;
             var bounce = respond(req, headers, c);
@@ -128,7 +131,13 @@ function respond (req, headers, c) {
         }
         
         var buffers = [ headBuf ];
-        insertHeaders(buffers, opts.headers);
+        var len = insertHeaders(buffers, opts.headers);
+        
+        if (req.headers.upgrade) {
+            buffers.push(
+                headers.buffer.slice(headBuf.length, headers.buffer.length)
+            );
+        }
         
         try {
             for (var i = 0; i < buffers.length; i++) {
@@ -145,9 +154,16 @@ function respond (req, headers, c) {
             return;
         }
         
-        req.pipe(stream);
-        stream.pipe(c);
-        req.resume();
+        if (req.headers.upgrade) {
+            req.socket.pipe(stream);
+            stream.pipe(c);
+            req.socket.resume();
+        }
+        else {
+            req.pipe(stream);
+            stream.pipe(c);
+            req.resume();
+        }
     };
     
     bounce.respond = function () {
