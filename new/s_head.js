@@ -37,7 +37,7 @@ var server = net.createServer(function (c) {
                 var buf = headers.buffer.slice(0, headers.end + 4);
             }
             console.dir(buf.toString());
-        };
+        }
         
         request = req;
         headers = {};

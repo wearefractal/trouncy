@@ -29,114 +29,46 @@ var handler = bouncy.handler = function (cb, c) {
     parser.incoming = null;
     
     var request = null;
+    var headers = {};
+    
     parser.onIncoming = function (req, shouldKeepAlive) {
+        req.pause();
         request = req;
     };
     
-    var buffers = [];
-    var bufSize = 0;
-    
-    function respond (req, bytesInHeader) {
-        var bufs = buffers;
-        buffers = [];
-        bufSize = 0;
+    parser.onHeaderValue = function (b, start, len) {
+        if (!headers.buffer) headers.buffer = b;
+        headers.end = start + len;
         
-        req.socket.pause();
-        
-        var bounce = function (stream, opts) {
-            if (!stream || !stream.write) {
-                opts = parseArgs(arguments);
-                stream = opts.stream;
-            }
-            if (!opts) opts = {};
-            
-            if (!opts.hasOwnProperty('headers')) opts.headers = {};
-            
-            if (opts.headers) {
-                if (!opts.headers.hasOwnProperty('x-forwarded-for')) {
-                    opts.headers['x-forwarded-for'] = c.remoteAddress;
-                }
-                if (!opts.headers.hasOwnProperty('x-forwarded-port')) {
-                    var m = (req.headers.host || '').match(/:(\d+)/);
-                    opts.headers['x-forwarded-port'] = m && m[1] || 80;
-                }
-                if (!opts.headers.hasOwnProperty('x-forwarded-proto')) {
-                    opts.headers['x-forwarded-proto'] =
-                        c.encrypted ? 'https' : 'http';
-                }
-            }
-            
-            if (opts.headers) {
-                bytesInHeader += insertHeaders(bufs, opts.headers);
-            }
-            
-            var written = 0;
-            
-            for (var i = 0; i < bufs.length; i++) {
-                var buf = bufs[i];
-                
-                if (written + buf.length > bytesInHeader) {
-                    try {
-                        stream.write(buf.slice(0, bytesInHeader - written));
-                        break;
-                    }
-                    catch (err) {
-                        if (opts.emitter) {
-                            opts.emitter.emit('drop', c);
-                        }
-                        else {
-                            c.destroy();
-                        }
-                        return;
-                    }
-                }
-                else {
-                    try {
-                        stream.write(buf);
-                    }
-                    catch (err) {
-                        if (opts.emitter) {
-                            opts.emitter.emit('drop', c);
-                        }
-                        else {
-                            c.destroy();
-                        }
-                        return;
-                    }
-                    written += buf.length;
-                }
-            }
-            
-            req.socket.pipe(stream);
-            stream.pipe(c);
-            req.socket.resume();
-        };
-        
-        bounce.respond = function () {
-            var res = new ServerResponse(req);
-            res.assignSocket(req.socket);
-            return res;
-        };
-        
-        cb(req, bounce);
+        var slice = b.toString('ascii', start, start + len);
+        if (parser.value) {
+            parser.value += slice;
+        }
+        else {
+            parser.value = slice;
+        }
     };
     
     c.on('data', function onData (buf) {
-        buffers.push(buf);
-        bufSize += buf.length;
-        
         var ret = parser.execute(buf, 0, buf.length);
         if (ret instanceof Error) {
             c.destroy();
         }
         else if (parser.incoming && parser.incoming.upgrade) {
             c.removeListener('data', onData);
-            respond(parser.incoming, bufSize);
-            buffers = [];
-            bufSize = 0;
+            
+            var req = parser.incoming;
+            var bounce = respond(req, headers, c);
+            cb(req, bounce);
+            
+            headers = {};
+            request = null;
         }
         else if (request) {
-            respond(request, ret);
+            var bounce = respond(request, headers, c);
+            cb(request, bounce);
+            
+            headers = {};
             request = null;
         }
     });
@@ -150,3 +82,74 @@ var handler = bouncy.handler = function (cb, c) {
         c.destroy();
     });
 };
+
+var slash = {
+    n : '\n'.charCodeAt(0),
+    r : '\r'.charCodeAt(0),
+};
+
+function respond (req, headers, c) {
+    if (headers.buffer[headers.end] === slash.n
+    && headers.buffer[headers.end + 1] === slash.n) {
+        // \n\n
+        var headBuf = headers.buffer.slice(0, headers.end + 2);
+    }
+    else if (headers.buffer[headers.end] === slash.n
+    && headers.buffer[headers.end + 2] === slash.n) {
+        // \n\r\n just in case
+        var headBuf = headers.buffer.slice(0, headers.end + 3);
+    }
+    else {
+        // \r\n\r\n
+        var headBuf = headers.buffer.slice(0, headers.end + 4);
+    }
+    
+    var bounce = function (stream, opts) {
+        if (!stream || !stream.write) {
+            opts = parseArgs(arguments);
+            stream = opts.stream;
+        }
+        if (!opts) opts = {};
+        
+        if (!opts.hasOwnProperty('headers')) opts.headers = {};
+        
+        if (opts.headers) {
+            if (!opts.headers.hasOwnProperty('x-forwarded-for')) {
+                opts.headers['x-forwarded-for'] = c.remoteAddress;
+            }
+            if (!opts.headers.hasOwnProperty('x-forwarded-port')) {
+                var m = (req.headers.host || '').match(/:(\d+)/);
+                opts.headers['x-forwarded-port'] = m && m[1] || 80;
+            }
+            if (!opts.headers.hasOwnProperty('x-forwarded-proto')) {
+                opts.headers['x-forwarded-proto'] =
+                    c.encrypted ? 'https' : 'http';
+            }
+        }
+        
+        try {
+            stream.write(headBuf);
+        }
+        catch (err) {
+            if (opts.emitter) {
+                opts.emitter.emit('drop', c);
+            }
+            else {
+                c.destroy();
+            }
+            return;
+        }
+        
+        req.pipe(stream);
+        stream.pipe(c);
+        req.resume();
+    };
+    
+    bounce.respond = function () {
+        var res = new ServerResponse(req);
+        res.assignSocket(req.socket);
+        return res;
+    };
+    
+    return bounce;
+}
