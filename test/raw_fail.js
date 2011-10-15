@@ -3,11 +3,12 @@ var bouncy = require('bouncy');
 var net = require('net');
 
 test('raw without a host', function (t) {
-    t.plan(1);
+    t.plan(2);
     
     var port = Math.floor(Math.random() * (Math.pow(2,16) - 1e4) + 1e4);
     var s = bouncy(function (req, bounce) {
         t.strictEqual(req.headers.host, undefined);
+        t.equal(req.url, '/lul');
         t.end();
         req.socket.end();
         s.close();

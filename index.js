@@ -37,6 +37,19 @@ var handler = bouncy.handler = function (cb, c) {
         request = req;
     };
     
+    parser.onURL = function (b, start, len) {
+        if (!headers.buffer) headers.buffer = b;
+        headers.end = start + len;
+        
+        var slice = b.toString('ascii', start, start + len);
+        if (parser.incoming.url) {
+            parser.incoming.url += slice;
+        }
+        else {
+            parser.incoming.url = slice;
+        }
+    };
+    
     parser.onHeaderValue = function (b, start, len) {
         if (!headers.buffer) headers.buffer = b;
         headers.end = start + len;
