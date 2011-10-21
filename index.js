@@ -38,14 +38,14 @@ function makeBounce (req, stream, client) {
         if (!opts) opts = {};
         if (!opts.headers) opts.headers = {};
         
-        if (opts.headers['x-forwarded-for'] !== false) {
+        if (opts.headers['x-forwarded-for'] === undefined) {
             opts.headers['x-forwarded-for'] = client.remoteAddress;
         }
-        if (opts.headers['x-forwarded-port'] !== false) {
+        if (opts.headers['x-forwarded-port'] === undefined) {
             var m = (req.headers.host || '').match(/:(\d+)/);
             opts.headers['x-forwarded-port'] = m && m[1] || 80;
         }
-        if (opts.headers['x-forwarded-proto'] !== false) {
+        if (opts.headers['x-forwarded-proto'] === undefined) {
             opts.headers['x-forwarded-proto']
                 = client.encrypted ? 'https' : 'http';
         }
