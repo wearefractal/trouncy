@@ -50,9 +50,7 @@ function makeBounce (req, stream, client) {
                 = client.encrypted ? 'https' : 'http';
         }
         
-console.dir(stream.chunks.map(String));
         var len = insertHeaders(stream.chunks, opts.headers);
-console.dir(stream.chunks.map(String));
         
         stream.pipe(remote);
         remote.pipe(client);
