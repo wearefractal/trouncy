@@ -57,7 +57,6 @@ function makeBounce (req, stream, client) {
         
         stream.resume();
         client.resume();
-        remote.resume();
     };
     
     bounce.respond = function () {
