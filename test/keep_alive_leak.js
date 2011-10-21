@@ -45,10 +45,12 @@ test("make sure keep-alives don't leak", function (t) {
             
             var data = '';
             req.on('data', function (buf) {
+console.dir('data: ' + buf);
                 data += buf.toString();
             });
             
             req.on('end', function () {
+console.dir('end!');
                 t.equal(data, 'abcdefghij');
                 
                 res.setHeader('content-type', 'text/plain');

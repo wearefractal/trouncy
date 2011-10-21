@@ -1,13 +1,13 @@
 var http = require('http');
 var ServerResponse = http.ServerResponse;
 var IncomingMessage = http.IncomingMessage;
-var parsers = http.parsers;
-
-var insertHeaders = require('./lib/insert_headers');
-var parseArgs = require('./lib/parse_args');
 
 var net = require('net');
 var tls = require('tls');
+
+var insertHeaders = require('./lib/insert_headers');
+var parseArgs = require('./lib/parse_args');
+var split = require('./lib/split');
 
 var bouncy = module.exports = function (opts, cb) {
     if (typeof opts === 'function') {
@@ -23,160 +23,43 @@ var bouncy = module.exports = function (opts, cb) {
     }
 };
 
-var handler = bouncy.handler = function (cb, c) {
-    var parser = parsers.alloc();
-    parser.reinitialize('request');
-    parser.socket = c;
-    parser.incoming = null;
-    
-    var request = null;
-    var headers = {};
-    
-    parser.onIncoming = function (req, shouldKeepAlive) {
-        req.pause();
-        request = req;
-    };
-    
-    parser.onURL = function (b, start, len) {
-        if (!headers.buffer) headers.buffer = b;
-        headers.end = start + len;
-        
-        var slice = b.toString('ascii', start, start + len);
-        if (parser.incoming.url) {
-            parser.incoming.url += slice;
-        }
-        else {
-            parser.incoming.url = slice;
-        }
-    };
-    
-    parser.onHeaderValue = function (b, start, len) {
-        if (!headers.buffer) headers.buffer = b;
-        headers.end = start + len;
-        
-        var slice = b.toString('ascii', start, start + len);
-        if (parser.value) {
-            parser.value += slice;
-        }
-        else {
-            parser.value = slice;
-        }
-    };
-    
-    c.on('data', function onData (buf) {
-        var ret = parser.execute(buf, 0, buf.length);
-        
-        if (ret instanceof Error) {
-            c.destroy();
-        }
-        else if (parser.incoming && parser.incoming.upgrade) {
-            c.removeListener('data', onData);
-            c.pause();
-            
-            var req = parser.incoming;
-            var bounce = respond(req, headers, c);
-            cb(req, bounce);
-            
-            headers = {};
-            request = null;
-        }
-        else if (request) {
-            var bounce = respond(request, headers, c);
-            cb(request, bounce);
-            
-            headers = {};
-            request = null;
-        }
-    });
-    
-    c.on('close', function () {
-        parsers.free(parser);
-    });
-    
-    c.on('end', function () {
-        parser.finish();
-        c.destroy();
+var handler = bouncy.handler = function (cb, client) {
+    split(client, function (req, stream) {
+        cb(req, makeBounce(req, stream, client));
     });
 };
 
-var slash = {
-    n : '\n'.charCodeAt(0),
-    r : '\r'.charCodeAt(0),
-};
-
-function respond (req, headers, c) {
-    if (headers.buffer[headers.end] === slash.n
-    && headers.buffer[headers.end + 1] === slash.n) {
-        // \n\n
-        var headBuf = headers.buffer.slice(0, headers.end + 2);
-    }
-    else if (headers.buffer[headers.end] === slash.n
-    && headers.buffer[headers.end + 2] === slash.n) {
-        // \n\r\n just in case
-        var headBuf = headers.buffer.slice(0, headers.end + 3);
-    }
-    else {
-        // \r\n\r\n
-        var headBuf = headers.buffer.slice(0, headers.end + 4);
-    }
-    
-    var bounce = function (stream, opts) {
-        if (!stream || !stream.write) {
+function makeBounce (req, stream, client) {
+    var bounce = function (remote, opts) {
+        if (!remote || !remote.write) {
             opts = parseArgs(arguments);
-            stream = opts.stream;
+            remote = opts.stream;
         }
         if (!opts) opts = {};
+        if (!opts.headers) opts.headers = {};
         
-        if (!opts.hasOwnProperty('headers')) opts.headers = {};
-        
-        if (opts.headers) {
-            if (!opts.headers.hasOwnProperty('x-forwarded-for')) {
-                opts.headers['x-forwarded-for'] = c.remoteAddress;
-            }
-            if (!opts.headers.hasOwnProperty('x-forwarded-port')) {
-                var m = (req.headers.host || '').match(/:(\d+)/);
-                opts.headers['x-forwarded-port'] = m && m[1] || 80;
-            }
-            if (!opts.headers.hasOwnProperty('x-forwarded-proto')) {
-                opts.headers['x-forwarded-proto'] =
-                    c.encrypted ? 'https' : 'http';
-            }
+        if (opts.headers['x-forwarded-for'] !== false) {
+            opts.headers['x-forwarded-for'] = client.remoteAddress;
+        }
+        if (opts.headers['x-forwarded-port'] !== false) {
+            var m = (req.headers.host || '').match(/:(\d+)/);
+            opts.headers['x-forwarded-port'] = m && m[1] || 80;
+        }
+        if (opts.headers['x-forwarded-proto'] !== false) {
+            opts.headers['x-forwarded-proto']
+                = client.encrypted ? 'https' : 'http';
         }
         
-        var buffers = [ headBuf ];
-        var len = insertHeaders(buffers, opts.headers);
+console.dir(stream.chunks.map(String));
+        var len = insertHeaders(stream.chunks, opts.headers);
+console.dir(stream.chunks.map(String));
         
-        if (req.headers.upgrade) {
-            buffers.push(
-                headers.buffer.slice(headBuf.length, headers.buffer.length)
-            );
-        }
+        stream.pipe(remote);
+        remote.pipe(client);
         
-        try {
-            for (var i = 0; i < buffers.length; i++) {
-                stream.write(buffers[i]);
-            }
-        }
-        catch (err) {
-            if (opts.emitter) {
-                opts.emitter.emit('drop', c);
-            }
-            else {
-                c.destroy();
-            }
-            return;
-        }
-        
-        if (req.headers.upgrade) {
-            req.socket.pipe(stream);
-            stream.pipe(c);
-            req.socket.resume();
-        }
-        else {
-            req.pipe(stream);
-            stream.pipe(c);
-            req.resume();
-        }
+        stream.resume();
+        client.resume();
+        remote.resume();
     };
     
     bounce.respond = function () {
