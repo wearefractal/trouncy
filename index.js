@@ -74,21 +74,25 @@ function makeBounce(bs, client, req) {
       var clstream = new BufferedStream;
 
       if (!opts) opts = {};
-
-      if (!opts.requestHeaders) opts.requestHeaders = {};
-      if (!('x-forwarded-for' in opts.requestHeaders)) {
-        opts.requestHeaders['x-forwarded-for'] = client.remoteAddress;
+      if (opts.forward) {
+        if (!opts.requestHeaders) opts.requestHeaders = {}
+        if (!('x-forwarded-for' in opts.requestHeaders)) {
+          opts.requestHeaders['x-forwarded-for'] = client.remoteAddress;
+        }
+        if (!('x-forwarded-port' in opts.requestHeaders)) {
+          var m = (req.headers.host || '').match(/:(\d+)/);
+          opts.requestHeaders['x-forwarded-port'] = m && m[1] || 80;
+        }
+        if (!('x-forwarded-proto' in opts.requestHeaders)) {
+          opts.requestHeaders['x-forwarded-proto'] = client.encrypted ? 'https' : 'http';
+        }
       }
-      if (!('x-forwarded-port' in opts.requestHeaders)) {
-        var m = (req.headers.host || '').match(/:(\d+)/);
-        opts.requestHeaders['x-forwarded-port'] = m && m[1] || 80;
+      if (opts.requestHeaders) {
+        insertHeaders(bs.chunks, opts.requestHeaders);
       }
-      if (!('x-forwarded-proto' in opts.requestHeaders)) {
-        opts.requestHeaders['x-forwarded-proto'] = client.encrypted ? 'https' : 'http';
+      if (opts.path) {
+        updatePath(bs.chunks, opts.path);
       }
-
-      insertHeaders(bs.chunks, opts.requestHeaders);
-      if (opts.path) updatePath(bs.chunks, opts.path);
 
       if (stream.writable && client.writable && clstream.writable) {
         //bs = buffered inbound http connection, stream = outbound net.createConnection, client = inbound http connection
