@@ -72,6 +72,7 @@ function makeBounce(bs, client, req) {
         stream = opts.stream;
       }
       var clstream = new BufferedStream;
+      clstream.pause();
 
       if (!opts) opts = {};
       if (opts.forward) {
@@ -93,12 +94,13 @@ function makeBounce(bs, client, req) {
       if (opts.path) {
         updatePath(bs.chunks, opts.path);
       }
-
-      if (stream.writable && client.writable && clstream.writable) {
-        //bs = buffered inbound http connection, stream = outbound net.createConnection, client = inbound http connection
+      if (stream.writable && client.writable) {
+        //bs = req, stream = outbound net.createConnection, client = res
+        //Pipe req to stream
+        //Pipe stream to res
         //Usually only the initial request is prebuffered to inject headers before proxying it
         //This section has been modified to pre-buffer the response from the target to inject headers before proxying it back
-        stream.on('end', function (data) {
+        stream.on('end', function () {
           if (opts.responseHeaders) {
             insertHeaders(clstream.chunks, opts.responseHeaders);
           }
@@ -107,6 +109,7 @@ function makeBounce(bs, client, req) {
 
         bs.pipe(stream);
         stream.pipe(clstream);
+
       } else if (opts.emitter) {
         opts.emitter.emit('drop', client);
       }
@@ -121,7 +124,11 @@ function makeBounce(bs, client, req) {
 
       return stream;
     };
-
+  bounce.error = function (msg) {
+      var res = this.respond()
+      res.writeHead(400);
+      res.end(msg);
+  };
   bounce.respond = function () {
     var res = new ServerResponse(req);
     res.assignSocket(client);
