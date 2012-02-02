@@ -1,26 +1,12 @@
 {
-    "name" : "bouncy",
+    "name" : "trouncy",
     "description" : "Bounce HTTP requests around for a load balancer or http host router completely transparently",
     "version" : "1.1.0",
     "repository" : {
         "type" : "git",
-        "url" : "git://github.com/substack/bouncy.git"
+        "url" : "git://github.com/wearefractal/trouncy.git"
     },
     "main" : "index.js",
-    "bin" : {
-        "bouncy" : "bin/bouncy.js"
-    },
-    "keywords" : [
-        "http",
-        "parse",
-        "bounce",
-        "load",
-        "balancer",
-        "host",
-        "route",
-        "router",
-        "transparent"
-    ],
     "directories" : {
         "lib" : ".",
         "example" : "example",
